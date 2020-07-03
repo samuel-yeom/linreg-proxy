@@ -50,8 +50,9 @@ def run(args):
         X, y, gender_m, race_blk, colnames = process.process_chicago_ssl()
     elif args.dataset == 'cc':
         X, y, gender_m, race_blk, colnames = process.process_communities()
-    z = race_blk
     X = process.scale(X)
+    y = process.scale(y) #cvxopt has numerical stability issues when y isn't scaled
+    z = process.scale(race_blk)
     
     print('Standard deviation of y: {:.6f}'.format(np.std(y)))
     model = process.train_model(X, y)
@@ -60,7 +61,10 @@ def run(args):
     epsilon_str = 'epsilon == {:.6f}'.format(epsilon)
     print('\n{:*^80}'.format(epsilon_str))
     
-    alphas = proxy.find_proxy(X, z, beta, epsilon, exact, direction='both')
+    if args.cvxopt:
+        alphas = proxy.find_proxy_cvxopt(X, z, beta, epsilon, exact, direction='both')
+    else:
+        alphas = proxy.find_proxy(X, z, beta, epsilon, exact, direction='both')
     print('Positively correlated proxy:')
     print_proxy_info(X, z, colnames, beta, alphas[0], n_alpha=5)
     print('\nNegatively correlated proxy:')
@@ -73,6 +77,8 @@ if __name__ == '__main__':
     parser.add_argument('dataset', choices=['ssl', 'cc'])
     parser.add_argument('-a', '--approx', action='store_true',
                         help='Run the approximate, rather than exact, proxy-finding procedure.')
+    parser.add_argument('-c', '--cvxopt', action='store_true',
+                        help='Use cvxopt, rather than Gurobi, to solve the optimization problem.')
     parser.add_argument('-e', '--epsilon', action='store', type=float, default=0.05,
                         help='Association threshold for finding proxies.')
     args = parser.parse_args()

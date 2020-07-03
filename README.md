@@ -6,9 +6,9 @@ Code for the NeurIPS 2018 paper "Hunting for Discriminatory Proxies in Linear Re
 * [arXiv version](https://arxiv.org/abs/1810.07155)
 
 ## How to run the code
-You will need an installation of Python 3 with some commonly used data analysis packages, such as `numpy`, `scipy`, `sklearn`, and `pandas`. Python 2 may work, but the code has not been tested with Python 2.
+You will need an installation of Python 3 with some commonly used data analysis packages, such as `numpy`, `scipy`, `sklearn`, and `pandas`.
 
-In addition, this version of the code uses [Gurobi](https://www.gurobi.com), which is better at solving the exact optimization problem than `cvxopt` is. Gurobi is proprietary software, but free licenses are available for academic users.
+In addition, by default this version of the code uses [Gurobi](https://www.gurobi.com), which is better at solving the exact optimization problem than `cvxopt` is. Gurobi is proprietary software, but free licenses are available for academic users. If you prefer to use `cvxopt` instead, add the `-c` flag to the below command.
 
 To run the exact optimization problem, run
 ```

@@ -1,7 +1,5 @@
 import numpy as np
 from scipy.linalg import cholesky
-import gurobipy
-from gurobipy import GRB
 
 def get_assoc_infl(X, z, beta, alpha=None):
     '''
@@ -91,6 +89,9 @@ def find_proxy(X, z, beta, epsilon, exact=True, direction='pos', verbose=False):
         arrays, the first of which is positively correlated with `z` and the
         second of which is negatively correlated.
     '''
+    import gurobipy
+    from gurobipy import GRB
+    
     assert 0 <= epsilon <= 1
     assert X.shape[0] == z.shape[0]
     assert X.shape[1] == beta.shape[0]
@@ -134,5 +135,140 @@ def find_proxy(X, z, beta, epsilon, exact=True, direction='pos', verbose=False):
         m.optimize()
         
         alphas.append(alpha.X)
+    
+    return alphas
+
+def find_proxy_cvxopt(X, z, beta, epsilon, exact=True, direction='pos', verbose=False):
+    if exact:
+        return cvxopt_exact(X, z, beta, epsilon, direction, verbose)
+    else:
+        return cvxopt_approx(X, z, beta, epsilon, direction, verbose)
+
+def cvxopt_approx(X, z, beta, epsilon, direction='pos', verbose=False):
+    from cvxopt import solvers, matrix
+    
+    assert 0 <= epsilon <= 1
+    assert X.shape[0] == z.shape[0]
+    assert X.shape[1] == beta.shape[0]
+    assert direction in ['pos', 'neg', 'both']
+    
+    d = X.shape[1] #this is called n in the paper
+    
+    cov = np.cov(z, X, rowvar=False)
+    xcov = cov[1:,1:]
+    
+    #each column of basis corresponds to z, beta_1 * X_1, ..., beta_d * X_d
+    basis = cholesky(cov) * np.concatenate((np.ones(1), beta))
+    
+    #stretch (or compress) along the z-axis
+    #to make the angle at the vertex of the "association cone" 90 degrees
+    stretch_factor = np.sqrt((1-epsilon) / epsilon)
+    
+    if direction == 'pos':
+        s_list = [1]
+    elif direction == 'neg':
+        s_list = [-1]
+    elif direction == 'both':
+        s_list = [1, -1]
+    
+    solvers.options['show_progress'] = verbose
+    
+    alphas = []
+    for s in s_list:
+        stretched_basis = np.copy(basis)
+        stretched_basis[0] *= s * stretch_factor #reflect (or don't) along the z-axis
+        
+        c = np.abs(beta) * np.sqrt(xcov.diagonal()) #c_i == |beta_i| * std(X_i)
+        G = np.concatenate((-np.eye(d), np.eye(d), -stretched_basis[:,1:]))
+        h = np.concatenate((np.zeros(d), np.ones(d), np.zeros(d+1)))
+        dims = {'l': 2*d, 'q': [d+1], 's': []}
+        
+        ans_dict = solvers.conelp(matrix(-c), matrix(G), matrix(h), dims)
+        
+        alpha = np.squeeze(np.array(ans_dict['x']))
+        if ans_dict['status'] != 'optimal':
+            if s == 1:
+                print('Positively correlated proxy did not converge to the optimum\n')
+            elif s == -1:
+                print('Negatively correlated proxy did not converge to the optimum\n')
+        
+        alphas.append(alpha)
+    
+    return alphas
+
+def cvxopt_exact(X, z, beta, epsilon, direction='pos', verbose=False):
+    from cvxopt import solvers, matrix
+    
+    assert 0 <= epsilon <= 1
+    assert X.shape[0] == z.shape[0]
+    assert X.shape[1] == beta.shape[0]
+    assert direction in ['pos', 'neg', 'both']
+    
+    d = X.shape[1] #this is called n in the paper
+    
+    cov = np.cov(z, X, rowvar=False)
+    xcov = cov[1:,1:]
+    
+    #each column of basis corresponds to z, beta_1 * X_1, ..., beta_d * X_d
+    basis = cholesky(cov) * np.concatenate((np.ones(1), beta))
+    
+    #stretch (or compress) along the z-axis
+    #to make the angle at the vertex of the "association cone" 90 degrees
+    stretch_factor = np.sqrt((1-epsilon) / epsilon)
+    
+    if direction == 'pos':
+        s_list = [1]
+    elif direction == 'neg':
+        s_list = [-1]
+    elif direction == 'both':
+        s_list = [1, -1]
+    
+    solvers.options['show_progress'] = verbose
+    
+    alphas = []
+    for s in s_list:
+        stretched_basis = np.copy(basis)
+        stretched_basis[0] *= s * stretch_factor #reflect (or don't) along the z-axis
+        
+        def F(*args): #negative of the influence of component P
+            assert len(args) <= 2
+            
+            betaxcov = np.outer(beta, beta) * xcov
+            if len(args) == 0:
+                return (0, matrix(np.random.rand(d)))
+            
+            else:
+                alpha = np.squeeze(np.array(args[0]))
+                
+                objective = -np.linalg.multi_dot((alpha, betaxcov, alpha))
+                f = matrix(objective)
+                
+                d_objective = -np.dot(betaxcov + betaxcov.T, alpha)
+                Df = matrix(d_objective.reshape((1, d)))
+                
+                if len(args) == 1:
+                    return (f, Df)
+                
+                else:
+                    z = args[1]
+                    
+                    dd_objective = -(betaxcov + betaxcov.T)
+                    H = matrix(z[0] * dd_objective)
+                    return (f, Df, H)
+        
+        G = np.concatenate((-np.eye(d), np.eye(d), -stretched_basis[:,1:]))
+        h = np.concatenate((np.zeros(d), np.ones(d), np.zeros(d+1)))
+        dims = {'l': 2*d, 'q': [d+1], 's': []}
+        
+        ans_dict = solvers.cp(F, matrix(G), matrix(h), dims)
+        
+        alpha = np.squeeze(np.array(ans_dict['x']))
+        if ans_dict['status'] != 'optimal':
+            if s == 1:
+                print('Positively correlated proxy did not converge to the optimum\n')
+            elif s == -1:
+                print('Negatively correlated proxy did not converge to the optimum\n')
+        
+        alphas.append(alpha)
     
     return alphas
